@@ -1,95 +1,112 @@
 import 'package:flutter/material.dart';
-import 'db/database_helper.dart';
-import 'models/product.dart';
+import 'package:drift/drift.dart' as drift;
+import 'database/drift_database.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({Key? key}) : super(key: key);
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  final dbHelper = DatabaseHelper.instance;
-  List<Product> products = [];
-
-  final nameController = TextEditingController();
-  final priceController = TextEditingController();
-  final quantityController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadProducts();
-  }
-
-  Future<void> _loadProducts() async {
-    final data = await dbHelper.getProducts();
-    setState(() => products = data);
-  }
-
-  Future<void> _addProduct() async {
-    if (nameController.text.isEmpty) return;
-    final product = Product(
-      name: nameController.text,
-      price: double.parse(priceController.text),
-      quantity: int.parse(quantityController.text),
-    );
-    await dbHelper.insertProduct(product);
-    nameController.clear();
-    priceController.clear();
-    quantityController.clear();
-    _loadProducts();
-  }
-
-  Future<void> _deleteProduct(int id) async {
-    await dbHelper.deleteProduct(id);
-    _loadProducts();
-  }
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SQLite Product Manager',
+      title: 'Drift Product Manager',
       debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        appBar: AppBar(title: const Text('SQLite Product Manager')),
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                children: [
-                  TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Product Name')),
-                  TextField(controller: priceController, decoration: const InputDecoration(labelText: 'Price'), keyboardType: TextInputType.number),
-                  TextField(controller: quantityController, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: TextInputType.number),
-                  ElevatedButton(onPressed: _addProduct, child: const Text('Add Product')),
-                ],
-              ),
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const ProductPage(),
+    );
+  }
+}
+
+class ProductPage extends StatefulWidget {
+  const ProductPage({super.key});
+
+  @override
+  State<ProductPage> createState() => _ProductPageState();
+}
+
+class _ProductPageState extends State<ProductPage> {
+  final db = AppDatabase();
+
+  final nameCtrl = TextEditingController();
+  final priceCtrl = TextEditingController();
+  final qtyCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Drift Product Manager')),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Tên sản phẩm')),
+                TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'Giá'), keyboardType: TextInputType.number),
+                TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Số lượng'), keyboardType: TextInputType.number),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: _addProduct,
+                  child: const Text('Thêm sản phẩm'),
+                ),
+              ],
             ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: products.length,
-                itemBuilder: (context, index) {
-                  final p = products[index];
-                  return ListTile(
-                    title: Text('${p.name} - \$${p.price}'),
-                    subtitle: Text('Quantity: ${p.quantity}'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _deleteProduct(p.id!),
-                    ),
-                  );
-                },
-              ),
+          ),
+          const Divider(),
+          Expanded(
+            child: StreamBuilder<List<Product>>(
+              stream: db.watchAllProducts(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final products = snapshot.data!;
+                if (products.isEmpty) {
+                  return const Center(child: Text('Chưa có sản phẩm nào'));
+                }
+
+                return ListView.builder(
+                  itemCount: products.length,
+                  itemBuilder: (context, index) {
+                    final p = products[index];
+                    return ListTile(
+                      title: Text('${p.name}'),
+                      subtitle: Text('Giá: ${p.price} | SL: ${p.quantity}'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => db.deleteProduct(p.id),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+  }
+
+  void _addProduct() {
+    final name = nameCtrl.text.trim();
+    final price = double.tryParse(priceCtrl.text) ?? 0.0;
+    final qty = int.tryParse(qtyCtrl.text) ?? 0;
+
+    if (name.isEmpty) return;
+
+    db.insertProduct(ProductsCompanion.insert(
+      name: name,
+      price: price,
+      quantity: drift.Value(qty),
+    ));
+
+    nameCtrl.clear();
+    priceCtrl.clear();
+    qtyCtrl.clear();
   }
 }
